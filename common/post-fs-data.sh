@@ -1,58 +1,56 @@
-#!/system/bin/sh
-# Please don't hardcode /magisk/modname/... ; instead, please use $MODDIR/...
-# This will make your scripts compatible even if Magisk change its mount point in the future
-#MODDIR=${0%/*}
-
-# This script will be executed in post-fs-data mode
-# More info in the main Magisk thread
-
-ABDeviceCheck=$(cat /proc/cmdline | grep slot_suffix | wc -l)
-if [ "$ABDeviceCheck" -gt 0 ]; then
-  isABDevice=true
-  if [ -d "/system_root" ]; then
-    ROOT=/system_root
-    SYS=$ROOT/system
-  else
-    ROOT=""
-    SYS=$ROOT/system/system
+# QC Hexagon DTS script by UltraM8 & Zackptg5
+change_module() {
+  if [ "$1" ]; then
+    for FILE in $1; do
+      chmod 666 $FILE
+      echo "$2" > $FILE
+      chmod 444 $FILE
+    done
   fi
-else
-  isABDevice=false
-  ROOT=""
-  SYS=$ROOT/system
-fi
-
-if [ $isABDevice == true ] || [ ! -d $SYS/vendor ]; then
-  VEN=/vendor
-else
-  VEN=$SYS/vendor
-fi
+}
+set_metadata() {
+  file="$1"
+  if [ -e "$file" ]; then
+    shift
+    until [ ! "$2" ]; do
+    case $1 in
+      uid) chown "$2" "$file";;
+      gid) chown :"$2" "$file";;
+      mode) chmod "$2" "$file";;
+      capabilities) ;;
+      selabel)
+      chcon -h "$2" "$file"
+      chcon "$2" "$file"
+      ;;
+      *) ;;
+    esac
+    shift 2
+    done
+  fi
+}
 
 #Force high performance DAC by ZeroInfinity@XDA
 HPM=$(find $ROOT/sys/module -name high_perf_mode)
-if [ $HPM ]; then
-	chmod 666 $HPM
-	echo "1" > $HPM
-	chmod 444 $HPM
-fi
+change_module "$HPM" "1"
 
 #Force impedance detection by UltraM8@XDA
 IDE=$(find $ROOT/sys/module -name impedance_detect_en)
-if [ $IDE ]; then
-	chmod 666 $IDE
-	echo "1" > $IDE
-	chmod 444 $IDE
-fi
+change_module "$IDE" "1"
 
+#Preallocate DMA memory buffer expander by UltraM8@XDA
 MSS=$(find $ROOT/sys/module -name maximum_substreams)
-if [ $MSS ]; then
-	chmod 666 $MSS
-	echo "16" > $MSS
-	chmod 444 $MSS
-fi
+change_module "$MSS" "8"
 
-if [ -f "$ROOT/sys/devices/virtual/switch/beats/state" ]; then
-	chmod 666 $BTS
-	echo "1" > $BTS
-	chmod 444 $BTS
-fi
+#Probably the double-volume for htc framework
+BTS=$(find $ROOT/sys/devices/virtual/switch/beats/state)
+change_module "$BTS" "1"
+
+# Reset dts effects each boot
+for EFFECT in /data/misc/dts/effect*; do
+  cp -f /data/misc/dts/origeffect.bak $EFFECT
+done
+
+for FILE in /data/misc/dts/*; do
+  chcon 'u:object_r:dts_data_file:s0' $FILE
+  set_metadata $FILE uid 0 gid 0 mode 0644 capabilities 0x0 selabel u:object_r:audioserver:s0
+done
